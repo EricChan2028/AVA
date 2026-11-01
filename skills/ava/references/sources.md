@@ -8,6 +8,7 @@
 | MySQL, PostgreSQL, SQLite, MongoDB | DuckDB by default | DuckDB SQL |
 | ClickHouse | ClickHouse is selected automatically | ClickHouse SQL |
 | Supabase | Supabase is selected automatically | PostgreSQL SQL |
+| BigQuery | BigQuery is selected automatically | BigQuery GoogleSQL |
 | Feishu Bitable | DuckDB only | DuckDB SQL |
 | Inline CSV/JSON/text | JavaScript is optional when explicitly selected | JavaScript |
 
@@ -64,12 +65,14 @@ Use the configuration format and load command shown above:
 | `mongodb` | `{"connection":"mongodb://localhost:27017","database":"sales"}` |
 | `clickhouse` | `{"url":"http://localhost:8123","database":"sales","username":"reader","password":"REPLACE"}` |
 | `supabase` | `{"accessToken":"REPLACE","projectRef":"REPLACE"}` |
+| `bigquery` | `{"projectId":"REPLACE","dataset":"bigquery-public-data.thelook_ecommerce","keyFilename":"/secure/key.json"}` |
 
 Use authorized read-only credentials. Restrict temporary credential files to the current user and delete them after loading. Do not put credentials in deliverables or logs.
 
 - MySQL, PostgreSQL, SQLite, and MongoDB require the corresponding DuckDB extensions. MongoDB uses the `mongo` community extension. Each collection becomes a table, and its schema is inferred from samples, so rare fields may be missed.
 - ClickHouse connects over HTTP(S) and requires version 23.10 or later.
 - Supabase uses the Management API; `accessToken` must be a token authorized for that API.
+- BigQuery exposes one dataset: an ID in `projectId`, or `project.dataset` for another project's dataset such as a public one. `projectId` runs and pays for the query jobs. Credentials come from `keyFilename`, `credentials`, or `accessToken`, otherwise from `GOOGLE_APPLICATION_CREDENTIALS` or `gcloud auth application-default login`. The identity needs `roles/bigquery.jobUser` on the project and `roles/bigquery.dataViewer` on the dataset; loading fails early with the missing role. Use `tables` to expose only the tables you need in large datasets. Each query may bill at most `maximumBytesBilled` bytes (default 1 GiB) and run for `queryTimeoutMs` (default 30000 ms).
 
 ## Feishu Bitable
 

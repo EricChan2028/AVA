@@ -189,7 +189,10 @@ Connect files and databases, or load inline data.
   <tr>
     <td align="center"><a href="https://ava.antv.vision/documentation/data/sources/#clickhouse"><img src="site/public/logos/clickhouse.svg" width="32" height="32" alt="ClickHouse" /><br />ClickHouse</a></td>
     <td align="center"><a href="https://ava.antv.vision/documentation/data/sources/#supabase"><img src="site/public/logos/supabase.svg" width="32" height="32" alt="Supabase" /><br />Supabase</a></td>
+    <td align="center"><a href="https://ava.antv.vision/documentation/data/sources/#bigquery"><img src="site/public/logos/bigquery.svg" width="32" height="32" alt="BigQuery" /><br />BigQuery</a></td>
     <td align="center"><a href="https://ava.antv.vision/documentation/data/sources/#text"><img src="site/public/logos/text.svg" width="32" height="32" alt="Text extraction" /><br />Text (LLM)</a></td>
+  </tr>
+  <tr>
     <td align="center"><a href="https://ava.antv.vision/documentation/engines/custom/"><img src="site/public/logos/contribute.svg" width="32" height="32" alt="Custom engine" /><br />Custom engine</a></td>
   </tr>
 </table>
