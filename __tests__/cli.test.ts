@@ -255,6 +255,84 @@ describe('source', () => {
     expect(createSession).not.toHaveBeenCalled();
   });
 
+  it('detects a GitHub repository link and reads the token from the environment', async () => {
+    vi.stubEnv('AVA_GITHUB_TOKEN', undefined);
+    vi.stubEnv('GH_TOKEN', undefined);
+    vi.stubEnv('GITHUB_TOKEN', 'github-token');
+    const url = 'https://github.com/antvis/AVA/issues';
+
+    expect(JSON.parse(await execute(['source', url]))).toEqual({ datasetId });
+    expect(createSession).toHaveBeenCalledExactlyOnceWith(
+      { type: 'github', options: { repository: url, token: 'github-token' } },
+      { model: 'gpt-4o-mini' },
+      undefined
+    );
+  });
+
+  it('prefers AVA_GITHUB_TOKEN, then GH_TOKEN, and loads without a token when none is set', async () => {
+    vi.stubEnv('AVA_GITHUB_TOKEN', 'ava-token');
+    vi.stubEnv('GH_TOKEN', 'gh-token');
+    vi.stubEnv('GITHUB_TOKEN', 'github-token');
+    await execute(['source', 'antvis/AVA', '--type', 'github']);
+    vi.stubEnv('AVA_GITHUB_TOKEN', '');
+    await execute(['source', 'antvis/AVA', '--type', 'github']);
+    vi.stubEnv('GH_TOKEN', undefined);
+    vi.stubEnv('GITHUB_TOKEN', undefined);
+    await execute(['source', 'https://github.com/antvis/AVA']);
+
+    expect(vi.mocked(createSession).mock.calls.map(([config]) => config)).toEqual([
+      { type: 'github', options: { repository: 'antvis/AVA', token: 'ava-token' } },
+      { type: 'github', options: { repository: 'antvis/AVA', token: 'gh-token' } },
+      { type: 'github', options: { repository: 'https://github.com/antvis/AVA' } },
+    ]);
+  });
+
+  it('keeps the token and options of a GitHub config file', async () => {
+    vi.stubEnv('GITHUB_TOKEN', 'github-token');
+    const directory = await mkdtemp(join(tmpdir(), 'ava-cli-test-'));
+    try {
+      const options = {
+        repository: ['antvis/AVA', 'antvis/G2'],
+        token: 'config-token',
+        resources: ['issues', 'comments'],
+        since: '2026-01-01',
+      };
+      const file = join(directory, 'github.json');
+      await writeFile(file, JSON.stringify({ type: 'github', options }));
+
+      await execute(['source', `@${file}`]);
+      expect(createSession).toHaveBeenCalledExactlyOnceWith(
+        { type: 'github', options },
+        { model: 'gpt-4o-mini' },
+        undefined
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects GitHub links that are not repositories and invalid GitHub configs', async () => {
+    for (const url of [
+      'https://github.com/antvis/AVA/blob/ai/README.md',
+      'https://github.com/antvis/AVA/issues/1015',
+      'https://github.com/antvis',
+    ]) {
+      await expect(run(['source', url])).rejects.toThrow('Only GitHub repository links are supported');
+    }
+    await expect(run(['source', 'https://github.com/antvis/AVA', '--type', 'github'])).rejects.toThrow(
+      '--type cannot be combined with a GitHub repository link.'
+    );
+    const directory = await mkdtemp(join(tmpdir(), 'ava-cli-test-'));
+    try {
+      const file = join(directory, 'github.json');
+      await writeFile(file, JSON.stringify({ type: 'github', options: { repository: 'antvis/AVA', resources: ['stars'] } }));
+      await expect(run(['source', `@${file}`])).rejects.toThrow('Invalid enum value');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
   it('shows the dataset ID and next command in a terminal', async () => {
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
     const output = await execute(['source', 'sales.csv']);

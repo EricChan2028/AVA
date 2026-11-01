@@ -49,6 +49,8 @@ export type {
   SemanticOptions,
   JSONReadOptions,
   ClickHouseSourceOptions,
+  GitHubSourceOptions,
+  GitHubResource,
   AnalysisEngine,
   ExecutionOptions,
   ExecutionResult,

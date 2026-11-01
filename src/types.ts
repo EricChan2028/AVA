@@ -105,6 +105,7 @@ export interface AnalysisConfig extends ExecutionOptions {
  * - database types: `mysql`, `postgresql`, `sqlite`, `mongodb` (ATTACH through DuckDB's extension)
  * - direct query types: `clickhouse` (schema discovered and SQL executed through ClickHouse's HTTP API)
  * - cloud types: `supabase` (schema discovered and SQL executed through the Supabase Management API — data never leaves the SaaS; handled by SaasDBEngine)
+ * - SaaS API types: `feishu-bitable`, `github` (read through the platform's API and loaded into DuckDB)
  */
 export type SourceType =
   | 'csv'
@@ -120,7 +121,8 @@ export type SourceType =
   | 'mongodb'
   | 'supabase'
   | 'clickhouse'
-  | 'feishu-bitable';
+  | 'feishu-bitable'
+  | 'github';
 
 /**
  * DuckDB read_csv reader options.
@@ -493,6 +495,30 @@ export interface FeishuBitableSourceOptions {
   appSecret?:string;
 }
 
+/** GitHub data that can be loaded as tables in addition to `repositories`. */
+export type GitHubResource = 'issues' | 'pull_requests' | 'labels' | 'milestones' | 'releases' | 'comments';
+
+/**
+ * Options for GitHub sources, read through the GitHub REST API into DuckDB
+ * tables: `repositories` plus one table per resource. Read-only.
+ */
+export interface GitHubSourceOptions {
+  /** `owner/name` or a github.com repository link; pass several to load them together. */
+  repository: string | string[];
+  /** Token for private repositories and 5,000 requests per hour; without it, 60 per hour per IP address. */
+  token?: string;
+  /** Tables to load besides `repositories`. Defaults to issues, pull_requests, labels, milestones and releases. */
+  resources?: GitHubResource[];
+  /** ISO 8601 date or timestamp (UTC when no offset); loads only issues, pull requests and comments updated since then. */
+  since?: string;
+  /** Maximum records per repository and list; a longer list fails the load instead of being truncated. Default 10,000. */
+  maxRecords?: number;
+  /** REST API root for GitHub Enterprise Server, e.g. https://github.example.com/api/v3. Default https://api.github.com. */
+  apiUrl?: string;
+  /** Longest wait for a rate limit to reset before failing, in milliseconds. Default 60,000. */
+  maxRateLimitWaitMs?: number;
+}
+
 /**
  * External data source configuration for loadSource.
  * - inline types (csv/json/text): data is materialized into JS memory
@@ -500,6 +526,7 @@ export interface FeishuBitableSourceOptions {
  * - database types (mysql/postgresql/sqlite/mongodb): ATTACH through DuckDB's extension
  * - direct query types (clickhouse): schema/SQL over ClickHouse's HTTP API
  * - cloud types (supabase): schema/SQL over the Management API (SaasDBEngine)
+ * - SaaS API types (feishu-bitable/github): read through the platform API into DuckDB tables
  */
 export type DataSourceConfig =
   | { type: 'csv'; options: CSVSourceOptions }
@@ -515,7 +542,8 @@ export type DataSourceConfig =
   | { type: 'mongodb'; options: MongoDBSourceOptions }
   | { type: 'supabase'; options: SupabaseSourceOptions }
   | { type: 'clickhouse'; options: ClickHouseSourceOptions }
-  | { type: 'feishu-bitable'; options: FeishuBitableSourceOptions };
+  | { type: 'feishu-bitable'; options: FeishuBitableSourceOptions }
+  | { type: 'github'; options: GitHubSourceOptions };
 
 /**
  * File formats readable by DuckDB's readers (csv-file maps to csv, json-file to json).

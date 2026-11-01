@@ -9,6 +9,7 @@
 | ClickHouse | ClickHouse is selected automatically | ClickHouse SQL |
 | Supabase | Supabase is selected automatically | PostgreSQL SQL |
 | Feishu Bitable | DuckDB only | DuckDB SQL |
+| GitHub repositories | DuckDB only | DuckDB SQL |
 | Inline CSV/JSON/text | JavaScript is optional when explicitly selected | JavaScript |
 
 To use Python or JavaScript, add `--engine python` or `--engine javascript` to the `source` command. Python does not connect directly to databases. To post-process database results with pandas, query the database first, then export the complete result as described in [Results and Post-Processing](queries.md#results-and-post-processing).
@@ -136,3 +137,50 @@ Supported field types become columns. Other types are omitted. Complex cells are
 
 Stage (24) and button (3001) fields are read-only and skipped. A formula or
 lookup whose result type is unsupported becomes null.
+
+## GitHub
+
+`github` reads repositories through the GitHub REST API (read-only) into DuckDB tables; the Python and JavaScript engines cannot load it. The CLI detects github.com repository links, including their `/issues`, `/pulls`, `/releases`, `/milestones` and `/labels` pages:
+
+```sh
+ava source https://github.com/antvis/AVA > session.json
+ava source antvis/AVA --type github > session.json
+```
+
+Links to a single issue, a file, or a branch are rejected. The token comes from the config, then `AVA_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` (for example `GH_TOKEN=$(gh auth token)`). Public repositories load without a token, but unauthenticated requests share 60 requests per hour per IP address; a token raises the limit to 5,000 and reads the private repositories it can access. Use a fine-grained token with read-only access, and never put it in deliverables or logs.
+
+Use a config to select resources, limit the period, or compare repositories:
+
+```json
+{
+  "type": "github",
+  "options": {
+    "repository": ["antvis/AVA", "antvis/G2"],
+    "resources": ["issues", "pull_requests", "comments"],
+    "since": "2026-01-01"
+  }
+}
+```
+
+| Option | Meaning |
+| --- | --- |
+| `repository` | `owner/name` or github.com link; an array loads several repositories into the same tables. |
+| `resources` | Default `issues`, `pull_requests`, `labels`, `milestones`, `releases`; add `comments` for response times. `repositories` is always loaded. |
+| `since` | ISO date or timestamp (UTC without an offset). Keeps issues, pull requests and comments updated on or after it; open items not updated since then are left out, so omit it to count the current backlog. |
+| `maxRecords` | Default 10,000 per repository and list. Larger lists fail with an error instead of loading partially; set `since` or raise it. |
+| `apiUrl` | GitHub Enterprise Server API root, such as `https://github.example.com/api/v3`, with `repository` as `owner/name`. |
+| `maxRateLimitWaitMs` | Default 60,000. Longer rate-limit waits fail with the reset time. CLI loading must finish within two minutes. |
+
+Tables, all with a `repository` column (`owner/name`) referencing `repositories.full_name`:
+
+| Table | Key | Notes |
+| --- | --- | --- |
+| `repositories` | `full_name` | `stars`, `watchers`, `forks`, `open_issues_and_pull_requests` (GitHub counts both), `topics`, `license`, dates. |
+| `issues` | `repository`, `number` | Issues only. `state` is `open`/`closed`; `state_reason` is `completed`, `not_planned`, `duplicate` or `reopened`; `author_is_bot`, `author_association`, `assignees`, `labels`, `milestone` (title), `comments`, `reactions`, `created_at`, `closed_at`, `closed_by`. |
+| `pull_requests` | `repository`, `number` | `state` is `open`/`closed` and merged pull requests are `closed`, as on GitHub: use `is_merged` (or `merged_at`) for merged and `state = 'closed' AND NOT is_merged` for closed without merging. Also `is_draft` and the issue fields except `state_reason` and `issue_type`. |
+| `labels` | `repository`, `name` | `description`, `color`, `is_default`. |
+| `milestones` | `repository`, `number` | `title`, `state`, `open_issues`, `closed_issues` (include pull requests), `due_on`. |
+| `releases` | `id` | `tag_name`, `is_prerelease`, `published_at`, `assets`, total `downloads`. |
+| `comments` | `id` | Only when selected. Conversation comments; join on `repository` and `number` to `issues` or `pull_requests` (`is_pull_request` tells which). |
+
+Query notes: categorical columns are `ENUM`s, so `ava schema` lists their values; timestamps are UTC `TIMESTAMP`s, matching GitHub search qualifiers; compute durations with `date_diff('hour', created_at, merged_at)`. `labels`, `assignees` and `topics` are `VARCHAR[]`: use `list_contains(labels, 'bug')` or `unnest(labels)`. Exclude bots with `NOT author_is_bot`. Bodies, code review comments, reviews and commits are not loaded, and star history is not loaded because GitHub lists stargazers only to tokens with administrator access to the repository.

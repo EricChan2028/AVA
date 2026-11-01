@@ -251,6 +251,8 @@ ava dispose '<your-dataset-id>'
 
 Feishu Bitable links are detected automatically, both `/base/` links and wiki-hosted `/wiki/` links resolved through the wiki API: `ava source "https://<tenant>.feishu.cn/base/<app_token>?table=<table_id>"` or `ava source "https://<tenant>.feishu.cn/wiki/<node_token>?table=<table_id>"`. Provide credentials through the source config, `AVA_FEISHU_APP_ID`/`AVA_FEISHU_APP_SECRET`, or `~/.ava/feishu.json`; see the [data source guide](skills/ava/references/sources.md#feishu-bitable).
 
+GitHub repository links load the repository's issues, pull requests, labels, milestones, and releases as related tables: `ava source https://github.com/antvis/AVA`. Public repositories need no token; set `GITHUB_TOKEN` or `GH_TOKEN` for private repositories and higher rate limits. See the [data source guide](skills/ava/references/sources.md#github).
+
 ## 📚 Resources
 
 - [Documentation](https://ava.antv.vision/documentation/) — Guides and examples

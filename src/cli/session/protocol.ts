@@ -3,6 +3,7 @@ import { join } from 'path';
 
 import { z } from 'zod';
 
+import { githubOptionsSchema } from '../../duckdb/loaders/github/options';
 import { excelOptionsSchema } from '../../util/excel';
 import { profileMetadataSchema } from '../../util/profile';
 import { schemaMetadataSchema } from '../../util/schema';
@@ -110,6 +111,7 @@ const sourceSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('clickhouse'), options: clickhouse }).strict(),
   z.object({ type: z.literal('feishu-bitable'), options: feishuBitable }).strict(),
+  z.object({ type: z.literal('github'), options: githubOptionsSchema }).strict(),
 ]);
 
 export const sourceConfig = sourceSchema.transform((value) => value as DataSourceConfig);

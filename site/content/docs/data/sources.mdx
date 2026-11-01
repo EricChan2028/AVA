@@ -84,7 +84,7 @@ const schema = await ava.schema();
 
 | Parameter | Type                   | Required | Meaning                                                                                                                                      |
 | --------- | ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`    | `SourceType`           | Yes      | `csv`, `csv-file`, `json`, `json-file`, `parquet`, `excel`, `text`, `sqlite`, `mysql`, `postgresql`, `mongodb`, `supabase`, `clickhouse`, or `feishu-bitable`. |
+| `type`    | `SourceType`           | Yes      | `csv`, `csv-file`, `json`, `json-file`, `parquet`, `excel`, `text`, `sqlite`, `mysql`, `postgresql`, `mongodb`, `supabase`, `clickhouse`, `feishu-bitable`, or `github`. |
 | `options` | Source-specific object | Yes      | Use the matching table below. Field names are relative to `options`.                                                                         |
 
 `source()` returns no value and prepares the data for execution. Schema discovery is deferred until `schema()` or another operation needs it. Calling `source()` again replaces the current source and clears its cached metadata. Use `schema()` to inspect table and field names, and call `await ava.dispose()` when finished.
@@ -444,6 +444,71 @@ await ava.source({
 Provide `url`, or both `appToken` and `tableId`, along with `appId` and `appSecret`. The CLI also reads credentials from `AVA_FEISHU_APP_ID` / `AVA_FEISHU_APP_SECRET` or `~/.ava/feishu.json`.
 
 Both `/base/` and wiki-hosted `/wiki/` links are supported. Wiki links require wiki read access and wiki space membership so the app can resolve the Bitable. The `view` query parameter is ignored. Complex cells (people, attachments, links, formulas, locations, and groups) are flattened to comma-separated text.
+
+## GitHub
+
+Use `type: 'github'` with the DuckDB engine in Node.js to analyze a repository's issues, pull requests, and releases. AVA reads them through the [GitHub REST API](https://docs.github.com/rest) and loads one read-only table per resource, with primary and foreign keys so generated SQL can join them.
+
+```typescript
+await ava.source({
+  type: 'github',
+  options: {
+    repository: 'antvis/AVA',
+    // Optional for public repositories; required for private ones.
+    token: process.env.GITHUB_TOKEN,
+  },
+});
+
+const result = await ava.analyze(
+  'How many pull requests were merged each month in 2026, and what was the median time to merge in hours?'
+);
+```
+
+| Field                | Type                 | Required | Meaning                                                                                                                                                 |
+| -------------------- | -------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repository`         | `string \| string[]` | Yes      | `owner/name` or a github.com repository link. Pass several repositories to compare them in the same tables.                                            |
+| `token`              | `string`             | No       | Personal access token, GitHub App installation token, or `GITHUB_TOKEN` in Actions. Needed for private repositories and for more than 60 requests/hour. |
+| `resources`          | `GitHubResource[]`   | No       | Tables to load besides `repositories`. Default: `issues`, `pull_requests`, `labels`, `milestones`, `releases`. Add `comments` for response-time analysis. |
+| `since`              | `string`             | No       | ISO 8601 date or timestamp (UTC when it has no offset). Loads only issues, pull requests, and comments updated at or after it; other tables stay complete. |
+| `maxRecords`         | `number`             | No       | Records per repository and list. Default 10,000. A longer list fails the load instead of producing a partial table.                                    |
+| `apiUrl`             | `string`             | No       | REST API root for GitHub Enterprise Server, such as `https://github.example.com/api/v3`. Pass `repository` as `owner/name`.                              |
+| `maxRateLimitWaitMs` | `number`             | No       | Longest wait for a rate limit to reset before failing. Default 60,000.                                                                                  |
+
+### Tables
+
+| Table           | Primary key              | Contents                                                                                                                                                                                                                                       |
+| --------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repositories`  | `full_name`              | Description, language, `topics`, license, `stars`, `watchers`, `forks`, `open_issues_and_pull_requests` (GitHub counts both), and creation, update, and push times.                                                                            |
+| `issues`        | `repository`, `number`   | Issues only. `title`, `state` (`open`, `closed`), `state_reason` (`completed`, `not_planned`, `duplicate`, `reopened`), `issue_type`, `author`, `author_is_bot`, `author_association`, `assignees`, `labels`, `milestone`, `comments`, `reactions`, `created_at`, `updated_at`, `closed_at`, `closed_by`. |
+| `pull_requests` | `repository`, `number`   | The same fields without `state_reason` and `issue_type`, plus `is_draft`, `is_merged`, and `merged_at`. As on GitHub, a merged pull request is `closed`; `is_merged` separates merged from closed without merging.                            |
+| `labels`        | `repository`, `name`     | `description`, `color`, `is_default`.                                                                                                                                                                                                          |
+| `milestones`    | `repository`, `number`   | `title`, `state`, `open_issues` and `closed_issues` (GitHub counts pull requests too), `due_on`, `creator`, and dates.                                                                                                                          |
+| `releases`      | `id`                     | `tag_name`, `name`, `is_draft`, `is_prerelease`, `author`, `created_at`, `published_at`, `assets`, and total asset `downloads`.                                                                                                                 |
+| `comments`      | `id`                     | Loaded only when selected. Conversation comments on issues and pull requests: `number`, `is_pull_request`, `author`, `author_is_bot`, `author_association`, `reactions`, `created_at`, `updated_at`.                                           |
+
+Every table except `repositories` has a `repository` column (`owner/name`) that references `repositories.full_name`; join `comments` to `issues` or `pull_requests` on `repository` and `number`. Categorical columns (`state`, `state_reason`, `issue_type`, `author_association`, and `visibility`) are `ENUM`s of GitHub's documented values plus any others in the data, so the schema lists their values. Timestamps are UTC `TIMESTAMP` values, the same time zone as GitHub search qualifiers such as `created:2026-10-01..2026-10-31`. `labels`, `assignees`, and `topics` are `VARCHAR[]` lists: filter with `list_contains(labels, 'bug')` and group with `unnest(labels)`. Titles are loaded; issue, pull request, and comment bodies, code review comments, reviews, and commits are not.
+
+### Authentication and rate limits
+
+Public repositories load without a token, but unauthenticated requests share 60 requests per hour per IP address. For 5,000 requests per hour or private repositories, create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new):
+
+1. Under **Repository access**, choose **Public repositories** for public data, or **Only select repositories** for private ones.
+2. For private repositories, grant read-only **Issues**, **Pull requests**, and **Contents** (releases) permissions; **Metadata** is included automatically.
+3. Copy the token and keep it out of source control. Organizations that enforce SAML single sign-on also require you to authorize the token for the organization.
+
+Classic tokens need no scope for public repositories and `repo` for private ones. AVA sends the token only to `apiUrl`.
+
+Each request returns up to 100 items, and the lists of one repository are read concurrently (at most five requests at a time). Loading `antvis/AVA` with comments, about 1,000 issues and pull requests and 900 comments, takes 24 requests. When GitHub reports a rate limit, AVA waits for the reset time, the `retry-after` header, or one minute for secondary limits, as long as the wait fits `maxRateLimitWaitMs`; otherwise it fails with the reset time. Network errors and 5xx responses are retried three times. A missing or inaccessible repository (404), an invalid token (401), and denied access, including SAML single sign-on (403), fail with GitHub's message.
+
+The CLI detects repository links and reads the token from `AVA_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`:
+
+```sh
+export GH_TOKEN=$(gh auth token)   # optional
+ava source https://github.com/antvis/AVA
+ava source antvis/AVA --type github
+```
+
+Use an `@file` configuration to select resources, set `since`, or load several repositories. CLI sessions must finish loading within two minutes, so use `since` for large repositories.
 
 ## Supabase
 
